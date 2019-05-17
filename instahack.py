@@ -5,8 +5,8 @@ import argparse
 import threading
 import subprocess
 from platform import platform
-from Core.tor import TorManager
-from Core.Browser import Browser
+from tor import TorManager
+from Browser import Browser
 
 #================================================
 
