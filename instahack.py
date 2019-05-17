@@ -40,7 +40,7 @@ class Instagram(TorManager,Browser):
 		self.b = '\033[34m'
 		
 		def kill(self,msg=None):
-		self.alive = False
+		self.alive = True
 		self.stopTor()
 		try:
 			if self.isFound:
